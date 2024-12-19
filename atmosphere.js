@@ -26,6 +26,27 @@ function createProgram(gl, vertexShader, fragmentShader) {
     gl.deleteProgram(program);
 }
 
+function resizeCanvasToDisplaySize(canvas, multiplier) {
+    multiplier = multiplier || 1;
+    const width = canvas.clientWidth * multiplier | 0;
+    const height = canvas.clientHeight * multiplier | 0;
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        return true;
+    }
+    return false;
+}
+
+let mouseX = 0;
+let mouseY = 0;
+ 
+function setMousePosition(e) {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = rect.height - (e.clientY - rect.top) - 1;  // bottom is 0 in WebGL
+}
+ 
 
 const vertexShaderSource = `
 // 一个属性变量，将会从缓冲中获取数据
@@ -41,77 +62,112 @@ void main()
 
 const fragmentShaderSource = `  
 precision mediump float;
-
-void main() {
-gl_FragColor = vec4(1, 1, 0.5, 1); // return redish-purple
+uniform vec2 iResolution;//画布大小（像素）
+uniform vec2 iMouse;
+uniform float iTime;
+void main() 
+{
+    // gl_FragColor = vec4(fract(gl_FragCoord.xy / iResolution), 0, 1);    
+    gl_FragColor = vec4(fract((gl_FragCoord.xy) / iResolution), 0, 1);
 }
 `
-// main()
-// void main()
-// {
-// 获取canvas元素
-const canvas = document.getElementById('webglCanvas');
+var gl;
+var canvas;
+var program;
+var positionBuffer;
+var positionAttributeLocation
+var resolutionLocation;
+var mouseLocation;
+var timeLocation;
+function render(time)
+{
+    // 设置清除颜色为红色
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
 
-// 获取WebGL上下文
-const gl = canvas.getContext('webgl');
+    // 清除颜色缓冲区
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    // 告诉它用我们之前写好的着色程序（一个着色器对）
+    gl.useProgram(program);
 
-// 如果无法获得WebGL上下文，退出
-if (!gl) {
-    alert('Unable to initialize WebGL. Your browser may not support it.');
-    throw new Error('WebGL not supported');
+    // Turn on the attribute
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+    // Bind the position buffer.
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+    // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+    var size = 2;          // 2 components per iteration
+    var type = gl.FLOAT;   // the data is 32bit floats
+    var normalize = false; // don't normalize the data
+    var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+    var offset = 0;        // start at the beginning of the buffer
+    gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
+    gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);//画布大小
+    gl.uniform2f(mouseLocation, mouseX, mouseY);//鼠标位置
+    gl.uniform1f(timeLocation, time);
+    // draw
+    var offset = 0;
+    var count = 6;
+    gl.drawArrays(gl.TRIANGLES, offset, count);
+    requestAnimationFrame(render);
+}
+function main()
+{
+    // 获取canvas元素
+    canvas = document.getElementById('webglCanvas');
+
+    // 获取WebGL上下文
+    gl = canvas.getContext('webgl');
+
+    // 如果无法获得WebGL上下文，退出
+    if (!gl) {
+        alert('Unable to initialize WebGL. Your browser may not support it.');
+        throw new Error('WebGL not supported');
+    }
+
+    resizeCanvasToDisplaySize(gl.canvas);
+    canvas.addEventListener('mousemove', setMousePosition);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        setMousePosition(e.touches[0]);
+    }, { passive: false });
+
+
+    var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    program = createProgram(gl, vertexShader, fragmentShader);
+
+
+    // look up where the vertex data needs to go.
+    positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+    // look up uniform locations
+    resolutionLocation = gl.getUniformLocation(program, "iResolution");
+    mouseLocation = gl.getUniformLocation(program, "iMouse");
+    timeLocation = gl.getUniformLocation(program, "iTime");
+    // look up uniform locations
+    //var resolutionUniformLocation = gl.getUniformLocation(program, "u_resolution");
+
+    // Create a buffer and put three 2d clip space points in it
+    positionBuffer = gl.createBuffer();
+
+    // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+    var positions = [
+        -1, -1,  // first triangle
+        1, -1,
+        -1, 1,
+        -1, 1,  // second triangle
+        1, -1,
+        1, 1,
+    ];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+
+    // Tell WebGL how to convert from clip space to pixels
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    requestAnimationFrame(render);
 }
 
-var vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-var fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-var program = createProgram(gl, vertexShader, fragmentShader);
-
-
-// look up where the vertex data needs to go.
-var positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-
-// look up uniform locations
-//var resolutionUniformLocation = gl.getUniformLocation(program, "u_resolution");
-
-// Create a buffer and put three 2d clip space points in it
-var positionBuffer = gl.createBuffer();
-
-// Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
-gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-var positions = [
-    -1, -1,
-    1, -1,
-    1, 1,
-    1, 0,
-  ];
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-
-
-// 设置清除颜色为红色
-gl.clearColor(0.0, 0.0, 0.0, 1.0);
-
-// 清除颜色缓冲区
-gl.clear(gl.COLOR_BUFFER_BIT);
-// 告诉它用我们之前写好的着色程序（一个着色器对）
-gl.useProgram(program);
-
-// Turn on the attribute
-gl.enableVertexAttribArray(positionAttributeLocation);
-
-// Bind the position buffer.
-gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-// Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
-var size = 2;          // 2 components per iteration
-var type = gl.FLOAT;   // the data is 32bit floats
-var normalize = false; // don't normalize the data
-var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
-var offset = 0;        // start at the beginning of the buffer
-gl.vertexAttribPointer(positionAttributeLocation, size, type, normalize, stride, offset);
-
-// draw
-var primitiveType = gl.TRIANGLES;
-var offset = 0;
-var count = 3;
-gl.drawArrays(primitiveType, offset, count);
+main();
